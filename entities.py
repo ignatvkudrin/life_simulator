@@ -1,30 +1,28 @@
-# entities.py
 import random
 import math
 from constants import *
 from utils import distance, normalize_vector
 
 class QuadTree:
-    def __init__(self, x, y, width, height, capacity=8):
-        self.x = x  # Координата x верхнего левого угла области
-        self.y = y  # Координата y верхнего левого угла области
-        self.width = width  # Ширина области
-        self.height = height  # Высота области
-        self.capacity = capacity  # Максимальное количество сущностей в узле
-        self.entities = []  # Список сущностей в текущем узле
-        self.divided = False  # Флаг, разделён ли узел
-        self.nw = None  # Северо-западный подузел
-        self.ne = None  # Северо-восточный подузел
-        self.sw = None  # Юго-западный подузел
-        self.se = None  # Юго-восточный подузел
-        # Кэшируем границы для оптимизации
+    def __init__(self, x, y, width, height, capacity=4):  # Уменьшено с 8 до 4
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.capacity = capacity
+        self.entities = []
+        self.divided = False
+        self.nw = None
+        self.ne = None
+        self.sw = None
+        self.se = None
         self.x_min = x
         self.x_max = x + width
         self.y_min = y
         self.y_max = y + height
+        self._query_cache = {}
 
     def subdivide(self):
-        # Делит область на четыре квадранта
         half_w = self.width / 2
         half_h = self.height / 2
         x, y = self.x, self.y
@@ -33,78 +31,86 @@ class QuadTree:
         self.sw = QuadTree(x, y + half_h, half_w, half_h, self.capacity)
         self.se = QuadTree(x + half_w, y + half_h, half_w, half_h, self.capacity)
         self.divided = True
-        # Перераспределяем существующие сущности в подузлы
         entities_to_redistribute = self.entities
         self.entities = []
         for entity in entities_to_redistribute:
             self.insert(entity)
 
     def insert(self, entity):
-        # Проверяем, находится ли сущность в пределах области узла
         if not (self.x_min <= entity.x < self.x_max and self.y_min <= entity.y < self.y_max):
             return False
-        # Если узел не разделён и есть место, добавляем сущность
         if len(self.entities) < self.capacity and not self.divided:
             self.entities.append(entity)
             return True
-        # Если узел не разделён, но вместимость превышена, делим его
         if not self.divided:
             self.subdivide()
-        # Пытаемся вставить сущность в один из подузлов
         return (self.nw.insert(entity) or
                 self.ne.insert(entity) or
                 self.sw.insert(entity) or
                 self.se.insert(entity))
 
     def query(self, x, y, radius):
-        # Находим сущности в радиусе radius от точки (x, y)
+        cache_key = (x, y, radius)
+        if cache_key in self._query_cache:
+            return self._query_cache[cache_key]
+        
         found = []
-        # Точная проверка пересечения круга с прямоугольником
         closest_x = max(self.x_min, min(x, self.x_max))
         closest_y = max(self.y_min, min(y, self.y_max))
         dist_to_rect = distance(x, y, closest_x, closest_y)
         if dist_to_rect > radius:
             return found
-        # Проверяем сущности в текущем узле
+        
         for entity in self.entities:
             if entity.alive and distance(x, y, entity.x, entity.y) <= radius:
                 found.append(entity)
-        # Если узел разделён, рекурсивно проверяем подузлы
+        
         if self.divided:
             found.extend(self.nw.query(x, y, radius))
             found.extend(self.ne.query(x, y, radius))
             found.extend(self.sw.query(x, y, radius))
             found.extend(self.se.query(x, y, radius))
+        
+        self._query_cache[cache_key] = found
         return found
+
+    def clear_cache(self):
+        self._query_cache.clear()
+        if self.divided:
+            self.nw.clear_cache()
+            self.ne.clear_cache()
+            self.sw.clear_cache()
+            self.se.clear_cache()
 
 class Entity:
     def __init__(self, x, y, color, size):
-        self.x = x  # Координата x сущности
-        self.y = y  # Координата y сущности
-        self.color = color  # Цвет сущности (RGB)
-        self.size = size  # Размер сущности (для рендеринга и столкновений)
-        self.alive = True  # Флаг, жива ли сущность
+        self.x = x
+        self.y = y
+        self.color = color
+        self.size = size
+        self.alive = True
 
 class Grass(Entity):
     def __init__(self, x, y):
-        super().__init__(x, y, COLOR_GRASS, 1)  # Трава: зелёная, размер 1
+        super().__init__(x, y, COLOR_GRASS, 1)
 
 class Feces(Entity):
     def __init__(self, x, y):
-        super().__init__(x, y, COLOR_FECES, 1)  # Экскременты: коричневые, размер 1
+        super().__init__(x, y, COLOR_FECES, 1)
 
 class Herbivore(Entity):
     def __init__(self, x, y):
-        super().__init__(x, y, COLOR_HERBIVORE, 2)  # Травоядное: фиолетовое, размер 2
+        super().__init__(x, y, COLOR_HERBIVORE, 2)
         while True:
             dx, dy = random.uniform(-1, 1), random.uniform(-1, 1)
-            if abs(dx) > 0.2 or abs(dy) > 0.2:  # Убедимся, что направление не слишком слабое
+            if abs(dx) > 0.2 or abs(dy) > 0.2:
                 self.direction = (dx, dy)
                 break
-        self.grass_eaten = 0  # Счётчик съеденной травы
+        self.grass_eaten = 0
 
     def move(self, grass_quadtree):
-        # Движение травоядного к ближайшей траве или случайно
+        if not self.alive:
+            return
         nearest_grass = None
         min_dist = float('inf')
         nearby_grass = grass_quadtree.query(self.x, self.y, HERBIVORE_VISION)
@@ -127,12 +133,12 @@ class Herbivore(Entity):
             self.y += dy * HERBIVORE_SPEED
             self.direction = (random.uniform(-1, 1), random.uniform(-1, 1))
 
-        # Ограничиваем движение пределах поля
         self.x = max(0, min(self.x, FIELD_WIDTH - self.size))
         self.y = max(0, min(self.y, FIELD_HEIGHT - self.size))
 
     def eat(self, grass_quadtree, feces_list):
-        # Поедание травы и размножение
+        if not self.alive:
+            return []
         new_herbivores = []
         nearby_grass = grass_quadtree.query(self.x, self.y, self.size)
         for grass in nearby_grass:
@@ -151,20 +157,19 @@ class Herbivore(Entity):
 
 class Predator(Entity):
     def __init__(self, x, y):
-        super().__init__(x, y, COLOR_PREDATOR, 6)  # Хищник: красный, размер 6
-        self.hunger = PREDATOR_HUNGER_MAX  # Начальный уровень голода
+        super().__init__(x, y, COLOR_PREDATOR, 6)
+        self.hunger = PREDATOR_HUNGER_MAX
         while True:
             dx, dy = random.uniform(-1, 1), random.uniform(-1, 1)
             if abs(dx) > 0.2 or abs(dy) > 0.2:
                 self.direction = (dx, dy)
                 break
-        self.eating_timer = 0  # Таймер переваривания
-        self.feces_timer = 0  # Таймер появления экскрементов
-        self.target = None  # Цель (травоядное)
+        self.eating_timer = 0
+        self.feces_timer = 0
+        self.target = None
 
     def move(self, herbivore_quadtree):
-        # Движение хищника к добыче или случайно
-        if self.eating_timer > 0:
+        if not self.alive or self.eating_timer > 0:
             self.eating_timer -= 1
             self.hunger = PREDATOR_HUNGER_MAX
             return
@@ -193,13 +198,13 @@ class Predator(Entity):
             self.y += dy * PREDATOR_SPEED
             self.direction = (random.uniform(-1, 1), random.uniform(-1, 1))
 
-        # Ограничиваем движение пределах поля
         self.x = max(0, min(self.x, FIELD_WIDTH - self.size))
         self.y = max(0, min(self.y, FIELD_HEIGHT - self.size))
         self.hunger -= PREDATOR_HUNGER_DECREASE
 
     def eat(self, herbivore_quadtree, feces_list):
-        # Поедание травоядного и размножение
+        if not self.alive:
+            return []
         self.feces_timer += 1
         if self.feces_timer >= PREDATOR_FECES_INTERVAL:
             self.feces_timer = 0
@@ -220,6 +225,5 @@ class Predator(Entity):
         return []
 
     def update_hunger(self):
-        # Обновление голода хищника
         if self.hunger <= 0:
             self.alive = False

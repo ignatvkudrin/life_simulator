@@ -1,38 +1,32 @@
-# renderer.py
 import pygame
 import os
 from constants import *
 
 class Renderer:
-    def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((FIELD_WIDTH + 200, FIELD_HEIGHT))
-        pygame.display.set_caption("Life Simulator")
-        self.font = pygame.font.SysFont('arial', 20)
-        self.background = pygame.Surface((FIELD_WIDTH, FIELD_HEIGHT))
-        self.background.fill((255, 255, 255))
+    def __init__(self, disable_rendering=False):
+        self.disable_rendering = disable_rendering
+        if not disable_rendering:
+            pygame.init()
+            self.screen = pygame.Surface((FIELD_WIDTH + 200, FIELD_HEIGHT))  # Используем Surface вместо display
+            self.font = pygame.font.SysFont('arial', 20)
+            self.background = pygame.Surface((FIELD_WIDTH, FIELD_HEIGHT))
+            self.background.fill((255, 255, 255))
         self.snapshot_dir = "snapshots"
         if not os.path.exists(self.snapshot_dir):
             os.makedirs(self.snapshot_dir)
 
     def draw(self, state):
-        if not state:
+        if self.disable_rendering or not state:
             return
         self.screen.blit(self.background, (0, 0))
-        for grass in state['grass']:
-            if grass.alive:
-                pygame.draw.rect(self.screen, grass.color, (grass.x, grass.y, grass.size, grass.size))
-        for feces in state['feces']:
-            if feces.alive:
-                pygame.draw.rect(self.screen, feces.color, (feces.x, feces.y, grass.size, grass.size))
-        for herbivore in state['herbivores']:
-            if herbivore.alive:
-                pygame.draw.rect(self.screen, herbivore.color, (herbivore.x, herbivore.y, herbivore.size, herbivore.size))
-        for predator in state['predators']:
-            if predator.alive:
-                pygame.draw.rect(self.screen, predator.color, (predator.x, predator.y, predator.size, predator.size))
+        for entity_list in [state['grass'], state['herbivores'], state['predators'], state['feces']]:
+            for entity in entity_list:
+                if entity.alive:
+                    pygame.draw.rect(self.screen, entity.color, (entity.x, entity.y, entity.size, entity.size))
 
     def draw_statistics(self, state, speed, current_round, simulation_round, frames_skipped):
+        if self.disable_rendering:
+            return
         stats_surface = pygame.Surface((200, FIELD_HEIGHT))
         stats_surface.fill((200, 200, 200))
         if state:
@@ -56,7 +50,7 @@ class Renderer:
         self.screen.blit(stats_surface, (FIELD_WIDTH, 0))
 
     def save_snapshot(self, state, speed, current_round, simulation_round, frames_skipped, snapshot_path):
-        if not state:
+        if self.disable_rendering or not state:
             return
         self.draw(state)
         self.draw_statistics(state, speed, current_round, simulation_round, frames_skipped)
